@@ -1,30 +1,3 @@
-# ==============================================================================
-# COMPLETE BILE-ACID ANALYSIS WORKFLOW
-# Liver, plasma, ileum, cecum and feces: NC, MCD and 3_5 groups
-# ==============================================================================
-# Input expected:
-#   NAFLD_BA_Allcontaint(4).csv
-#
-# Main outputs:
-#   00_QC/                  data checks and sample summaries
-#   01_Pathway_indices/     conjugation and transformation indices
-#   02_Univariate/          group summaries, tests and effect sizes
-#   03_Figures/             boxplots and heat maps
-#   04_Multivariate/        PCA, PERMANOVA and dispersion tests
-#   05_Correlation/         within-compartment residual correlations
-#   06_Optional_matched/    mixed models / DIABLO / SEM, when Animal_ID exists
-#
-# Important:
-# 1. The default analysis compares groups separately within each compartment.
-# 2. Do not infer Animal_ID from sample names. Fill sample_metadata_map(3).csv first.
-# 3. Ratios are pathway-balance proxies, not direct metabolic-flux estimates.
-# 4. Features beginning with "log2_" are already log2 ratios and are never
-#    log-transformed a second time.
-# 5. Revised metadata contains 24 complete matched animals (8/group) across 5 parts.
-# ==============================================================================
-
-# ------------------------------- 0. SETTINGS -----------------------------------
-
 set.seed(20260807)
 options(stringsAsFactors = FALSE)
 
@@ -34,27 +7,12 @@ input_candidates <- c(
 )
 existing_input <- input_candidates[file.exists(input_candidates)]
 input_file <- if (length(existing_input) > 0) existing_input[1] else input_candidates[1]
-out_dir <- "NAFLD_BA_R_results_V4_FAST_24CPU_CIRCOSFIX"
+out_dir <- "NAFLD_BA_R_results_V5_SAFE_test"
 
-# Number of permutations for PERMANOVA. Use 9999 for final analysis.
 n_permutations <- 9999
 
-# Whether to create one PDF page for every individual BA/pathway feature.
 make_individual_boxplots <- TRUE
 
-# --------------------- MANUAL SEM FEATURE SELECTION ----------------------------
-# Choose ONE feature for each compartment in the proposed
-# Liver -> Plasma -> Ileum -> Cecum -> Feces chain.
-#
-# IMPORTANT naming:
-#   Raw "T.b.MCA" is renamed earlier in this workflow to "TbetaMCA".
-#
-# Any numeric column present in matched_data can be used, including:
-#   - individual bile acids in ba_columns, e.g. "TbetaMCA", "TCA", "DCA"
-#   - pathway summaries, e.g. "Conjugated_fraction", "Secondary_fraction"
-#   - totals/families/indices, e.g. "Total_BA", "CA_to_DCA_index"
-#
-# Edit ONLY the five values below to test another biological chain.
 SEM_FEATURE_BY_PART <- c(
   Liver  = "TbetaMCA",
   Plasma = "TbetaMCA",
@@ -63,96 +21,19 @@ SEM_FEATURE_BY_PART <- c(
   Feces  = "TbetaMCA"
 )
 
-# Example of a mixed-feature chain:
-# SEM_FEATURE_BY_PART <- c(
-#   Liver  = "TbetaMCA",
-#   Plasma = "Conjugated_fraction",
-#   Ileum  = "Conjugated_fraction",
-#   Cecum  = "Secondary_fraction",
-#   Feces  = "Total_BA"
-# )
-# individual bile acids
-# "CA"
-# "alphaMCA"
-# "betaMCA"
-# "omegaMCA"
-# "DCA"
-# "UDCA"
-# "HDCA"
-# "CDCA"
-# "TUDCA"
-# "TCDCA"
-# "TDCA"
-# "TCA"
-# "TbetaMCA"
-# "TalphaMCA"
-# "GCDCA"
-# "GDCA"
-# "LCA"
-# "GCA"
 
-# pathway indices
-# "Total_BA"
-# "Conjugated_BA"
-# "Unconjugated_BA"
-# "Taurine_conjugated_BA"
-# "Glycine_conjugated_BA"
-# "Primary_BA"
-# "Secondary_BA"
-# 
-# "CA_family"
-# "CDCA_family"
-# "DCA_family"
-# "UDCA_family"
-# "alphaMCA_family"
-# "betaMCA_family"
-# "omegaMCA_family"
-# 
-# "Conjugated_fraction"
-# "Taurine_fraction_total"
-# "Glycine_fraction_total"
-# "Secondary_fraction"
-# "Fraction_12aOH"
-# 
-# "CA_conjugation"
-# "CDCA_conjugation"
-# "DCA_conjugation"
-# "UDCA_conjugation"
-# "alphaMCA_conjugation"
-# "betaMCA_conjugation"
-# 
-# "CA_to_DCA_index"
-# "CDCA_to_UDCA_index"
-# "betaMCA_to_omegaMCA_index"
-# 
-# "log2_taurine_to_glycine"
-# "log2_12aOH_to_non12aOH"
-# "log2_primary_to_secondary"
-
-# ---------------------- mixOmics speed / parallel settings --------------------
-# Maximum number of workers used by mixOmics. DIABLO can use the full 24
-# workers because its joint keepX search is the expensive step. Tissue-specific
-# sPLS-DA is tiny (about 24 samples x 18 features), so it is run serially. This
-# avoids unnecessary SOCK connections and their cleanup/serialization warnings.
 MIXOMICS_MAX_WORKERS <- 24L
-SPLSDA_MAX_WORKERS <- 1L   # intentionally serial: avoids 4-worker socket warnings
-DIABLO_MAX_WORKERS <- 24L # retain full parallelism for expensive multiblock tuning
+SPLSDA_MAX_WORKERS <- 1L
+DIABLO_MAX_WORKERS <- 24L
 
-# Coarse keepX grid. With ~18 bile acids per block, three biologically useful
-# sparsity levels are sufficient and avoid the combinatorial explosion caused
-# by seven values per block in DIABLO (7^5 = 16,807 combinations).
 MIXOMICS_KEEPX_GRID <- c(3L, 8L, 15L)
 
-# Hyperparameter tuning should be relatively light. Final-model performance is
-# evaluated more thoroughly after the optimal keepX values have been selected.
 SPLSDA_TUNE_NREPEAT <- 3L
 SPLSDA_PERF_NREPEAT <- 20L
 DIABLO_TUNE_NREPEAT <- 3L
 DIABLO_PERF_NREPEAT <- 20L
 
-# Optional metadata file. The script creates a template if it does not exist.
-metadata_candidates <- c(
-  "sample_metadata_map(1).csv",
+etadata_candidates <- c(
   "sample_metadata_map.csv"
 )
 existing_metadata <- metadata_candidates[file.exists(metadata_candidates)]
@@ -162,7 +43,6 @@ metadata_file <- if (length(existing_metadata) > 0) {
   metadata_candidates[length(metadata_candidates)]
 }
 
-# Core packages used in the main workflow.
 core_packages <- c(
   "tidyverse", "broom", "vegan", "pheatmap", "patchwork", "ggrepel"
 )
@@ -189,11 +69,6 @@ suppressPackageStartupMessages({
   library(ggrepel)
 })
 
-# Optional packages for advanced matched-animal analyses:
-# install.packages(c("lme4", "lmerTest", "emmeans", "glmmTMB",
-#                    "piecewiseSEM", "zCompositions", "compositions"))
-# if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-# BiocManager::install(c("mixOmics", "MOFA2"))
 
 subdirs <- c(
   "00_QC", "01_Pathway_indices", "02_Univariate", "03_Figures",
@@ -202,7 +77,6 @@ subdirs <- c(
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 walk(file.path(out_dir, subdirs), dir.create, showWarnings = FALSE, recursive = TRUE)
 
-# ---------------------------- 1. HELPER FUNCTIONS ------------------------------
 
 safe_divide <- function(numerator, denominator) {
   ifelse(is.finite(denominator) & denominator > 0,
@@ -241,10 +115,7 @@ significance_symbol <- function(q) {
   )
 }
 
-# Build a small, adaptive keepX grid. The preferred grid is 3/8/15, but the
-# values are clipped to the number of available variables. If clipping produces
-# fewer than three unique values, construct three approximately spaced values
-# whenever at least three predictors are available.
+
 make_fast_keepx_grid <- function(p, preferred = MIXOMICS_KEEPX_GRID) {
   p <- as.integer(p)
   if (!is.finite(p) || p < 1L) return(integer(0))
@@ -259,11 +130,7 @@ make_fast_keepx_grid <- function(p, preferred = MIXOMICS_KEEPX_GRID) {
   grid
 }
 
-# Reusable BiocParallel backends -------------------------------------------------
-# Creating a fresh SnowParam for every tuning/performance call opens many SOCK
-# connections. When those temporary objects are garbage-collected, R prints
-# repeated "closing unused connection" warnings. Cache one backend per worker
-# count, reuse it for all mixOmics calls, and explicitly stop it once at the end.
+
 .mixomics_bp_cache <- new.env(parent = emptyenv())
 
 get_reusable_bpparam <- function(workers) {
@@ -321,8 +188,7 @@ stop_mixomics_backends <- function() {
   invisible(NULL)
 }
 
-# Finalizer is a backup if execution is interrupted before the explicit cleanup
-# at the bottom of this script.
+
 .parallel_cleanup_guard <- new.env(parent = emptyenv())
 reg.finalizer(
   .parallel_cleanup_guard,
@@ -332,8 +198,7 @@ reg.finalizer(
   onexit = TRUE
 )
 
-# mixOmics versions differ: recent versions may expose BPPARAM, whereas older
-# releases use cpus. Supply only an argument supported by the installed method.
+
 get_mixomics_parallel_args <- function(fun, workers) {
   arg_names <- names(formals(fun))
   workers <- max(1L, as.integer(workers))
@@ -350,7 +215,7 @@ get_mixomics_parallel_args <- function(fun, workers) {
   list()
 }
 
-# perf() is an S3 generic in mixOmics, so inspect its class-specific method first.
+
 get_mixomics_perf_parallel_args <- function(object, workers) {
   for (cls in class(object)) {
     method <- tryCatch(
@@ -366,8 +231,7 @@ get_mixomics_perf_parallel_args <- function(object, workers) {
   get_mixomics_parallel_args(mixOmics::perf, workers)
 }
 
-# Detect logical cores once. Reserve the full available pool (up to 24) for
-# DIABLO, while tissue sPLS-DA is intentionally serial to avoid SOCK overhead.
+
 detected_mixomics_cores <- suppressWarnings(parallel::detectCores(logical = TRUE))
 if (!is.finite(detected_mixomics_cores) || detected_mixomics_cores < 1L) {
   detected_mixomics_cores <- 1L
@@ -412,8 +276,7 @@ write_csv(
   file.path(out_dir, "00_QC", "mixOmics_speed_settings.csv")
 )
 
-# Cliff's delta is calculated as P(group2 > group1) - P(group2 < group1).
-# Positive values mean that group2 tends to be higher than group1.
+
 cliffs_delta <- function(group2, group1) {
   group2 <- group2[is.finite(group2)]
   group1 <- group1[is.finite(group1)]
@@ -482,8 +345,6 @@ pairwise_test_one <- function(data, group1, group2, feature_name) {
   median2 <- median(x2, na.rm = TRUE)
 
   if (is_prelogged) {
-    # This variable is already on a log2-ratio scale and may be negative.
-    # Its group effect is an arithmetic difference, not another logarithm.
     pseudo <- 0
     effect_log2 <- median2 - median1
   } else {
@@ -513,9 +374,7 @@ pairwise_test_one <- function(data, group1, group2, feature_name) {
   )
 }
 
-# Simple centered log-ratio transform after zero replacement.
-# zCompositions::cmultRepl is used when available; otherwise a documented
-# small-value replacement is applied.
+
 make_clr <- function(x) {
   x <- as.matrix(x)
   storage.mode(x) <- "double"
@@ -555,7 +414,6 @@ safe_scale_matrix <- function(x) {
   scale(x)
 }
 
-# ------------------------------ 2. READ DATA -----------------------------------
 
 if (!file.exists(input_file)) {
   stop("Input file not found: ", normalizePath(input_file, mustWork = FALSE))
@@ -616,7 +474,7 @@ if (anyDuplicated(data$Sample_ID) > 0) {
   stop("Duplicated Sample_ID values exist in the bile-acid table. See 00_QC/duplicated_sample_ID.csv")
 }
 
-# Create a metadata template only when no metadata file is available.
+
 if (!file.exists(metadata_file)) {
   metadata_template <- data %>%
     select(Sample_ID, Group, Part) %>%
@@ -631,8 +489,7 @@ if (!file.exists(metadata_file)) {
   message("Created metadata template: ", metadata_file)
 }
 
-# Read metadata as character so mixed numeric/alphanumeric Animal_ID values
-# (e.g. 1, 182, A80) are preserved exactly.
+
 metadata <- readr::read_csv(
   metadata_file,
   show_col_types = FALSE,
@@ -649,7 +506,7 @@ if (anyDuplicated(metadata$Sample_ID) > 0) {
   stop("Duplicated Sample_ID values exist in metadata. See 00_QC/duplicated_metadata_Sample_ID.csv")
 }
 
-# Guarantee expected metadata columns exist.
+
 for (nm in c("Group", "Part", "Treatment_detail", "Animal_ID",
              "Replicate_Set", "Batch", "Notes")) {
   if (!nm %in% names(metadata)) metadata[[nm]] <- NA_character_
@@ -678,7 +535,7 @@ metadata <- metadata %>%
     Notes = na_if(str_trim(Notes), "")
   )
 
-# Validate the two uploaded files before metadata is allowed to control grouping.
+
 metadata_validation <- full_join(
   data %>%
     transmute(
@@ -729,7 +586,7 @@ if (nrow(bad_metadata_rows) > 0) {
   )
 }
 
-# Current revised dataset design QC.
+
 current_design_qc <- metadata %>%
   count(Group, Part, name = "n_samples") %>%
   arrange(Part, Group)
@@ -774,8 +631,7 @@ if (nrow(metadata) == 120L &&
   )
 }
 
-# Metadata is now authoritative for Group, Part and Treatment_detail after the
-# validation above. This avoids inference from sample-name strings.
+
 data <- data %>%
   select(-any_of(c("Treatment_detail", "Animal_ID", "Replicate_Set", "Batch", "Notes"))) %>%
   left_join(
@@ -802,10 +658,9 @@ if (any(is.na(data$Part))) {
   stop("Metadata contains Part values outside Liver, Plasma, Ileum, Cecum, Feces.")
 }
 
-# Keep raw rows by default. Technical replicates are NOT automatically merged.
+
 write_csv(data, file.path(out_dir, "00_QC", "cleaned_input_data.csv"))
 
-# ------------------------------- 3. QC -----------------------------------------
 
 sample_counts <- data %>% count(Part, Group, name = "n_samples")
 write_csv(sample_counts, file.path(out_dir, "00_QC", "sample_counts.csv"))
@@ -857,7 +712,6 @@ ggsave(
   p_detected, width = 10, height = 6
 )
 
-# ------------------------- 4. PATHWAY DEFINITIONS ------------------------------
 
 unconjugated_ba <- c(
   "CA", "alphaMCA", "betaMCA", "omegaMCA", "DCA", "UDCA", "HDCA",
@@ -871,7 +725,6 @@ taurine_conjugated_ba <- c(
 glycine_conjugated_ba <- c("GCA", "GCDCA", "GDCA")
 conjugated_ba <- c(taurine_conjugated_ba, glycine_conjugated_ba)
 
-# Parent-family definitions.
 ca_family <- c("CA", "TCA", "GCA")
 cdca_family <- c("CDCA", "TCDCA", "GCDCA")
 dca_family <- c("DCA", "TDCA", "GDCA")
@@ -880,8 +733,7 @@ alpha_mca_family <- c("alphaMCA", "TalphaMCA")
 beta_mca_family <- c("betaMCA", "TbetaMCA")
 omega_mca_family <- c("omegaMCA")
 
-# Primary versus secondary classification used here.
-# UDCA, DCA, LCA, HDCA and omegaMCA are treated as secondary/microbial products.
+
 primary_ba <- c(
   ca_family, cdca_family, alpha_mca_family, beta_mca_family
 )
@@ -889,11 +741,10 @@ secondary_ba <- c(
   dca_family, udca_family, "LCA", "HDCA", omega_mca_family
 )
 
-# Common 12alpha-hydroxylated pool.
+
 ba_12aOH <- c(ca_family, dca_family)
 non_12aOH <- setdiff(ba_columns, ba_12aOH)
 
-# ----------------------- 5. CALCULATE PATHWAY INDICES --------------------------
 
 analysis_data <- data
 
@@ -957,7 +808,7 @@ analysis_data$betaMCA_conjugation <- safe_divide(
   analysis_data$betaMCA + analysis_data$TbetaMCA
 )
 
-# Product/(substrate + product) balance indices.
+
 analysis_data$CA_to_DCA_index <- safe_divide(
   analysis_data$DCA_family,
   analysis_data$CA_family + analysis_data$DCA_family
@@ -971,7 +822,7 @@ analysis_data$betaMCA_to_omegaMCA_index <- safe_divide(
   analysis_data$betaMCA + analysis_data$omegaMCA
 )
 
-# Log-ratio indices use a data-derived pseudocount only to avoid log(0).
+
 global_pseudocount <- minimum_positive(unlist(analysis_data[ba_columns]))
 analysis_data$log2_taurine_to_glycine <- log2(
   (analysis_data$Taurine_conjugated_BA + global_pseudocount) /
@@ -1007,7 +858,7 @@ write_csv(
   file.path(out_dir, "01_Pathway_indices", "sample_level_BA_and_indices.csv")
 )
 
-# Long tables used throughout the script.
+
 ba_long <- analysis_data %>%
   select(Sample_ID, Group, Part, Treatment_detail, Animal_ID, Batch,
          all_of(ba_columns)) %>%
@@ -1022,7 +873,6 @@ pathway_long <- analysis_data %>%
 
 all_long <- bind_rows(ba_long, pathway_long)
 
-# ----------------------- 6. DESCRIPTIVE STATISTICS -----------------------------
 
 group_summary <- all_long %>%
   group_by(Part, Group, Feature_type, Feature) %>%
@@ -1043,8 +893,6 @@ write_csv(
   group_summary,
   file.path(out_dir, "02_Univariate", "group_descriptive_statistics.csv")
 )
-
-# --------------------- 7. KRUSKAL-WALLIS TESTS --------------------------------
 
 kruskal_results <- all_long %>%
   group_by(Part, Feature_type, Feature) %>%
@@ -1068,7 +916,6 @@ write_csv(
   file.path(out_dir, "02_Univariate", "kruskal_wallis_all_features.csv")
 )
 
-# ----------------- 8. PAIRWISE TESTS + EFFECT SIZES ----------------------------
 
 contrasts <- tribble(
   ~Group1, ~Group2, ~Contrast,
@@ -1105,9 +952,6 @@ write_csv(
   file.path(out_dir, "02_Univariate", "pairwise_wilcoxon_effect_sizes.csv")
 )
 
-# ------------------ 9. PARAMETRIC LOG2 LINEAR MODELS ---------------------------
-# These models estimate mean log2 differences. Use together with, not instead of,
-# the rank-based tests above.
 
 prepare_model_feature <- function(data, feature_name) {
   data <- data %>%
@@ -1119,8 +963,6 @@ prepare_model_feature <- function(data, feature_name) {
   is_prelogged <- stringr::str_detect(as.character(feature_name), "^log2_")
 
   if (is_prelogged) {
-    # These pathway variables are already log2 ratios and may legitimately be
-    # negative. Applying log2() again would generate NaNs.
     data <- data %>%
       mutate(
         Pseudocount = 0,
@@ -1179,7 +1021,7 @@ fit_log2_lm <- function(data, feature_name) {
     ))
   }
 
-  # Reapply the intended reference and coefficient order after filtering.
+
   data <- data %>%
     mutate(Group = factor(as.character(Group), levels = required_groups))
 
@@ -1322,12 +1164,6 @@ write_csv(
   file.path(out_dir, "02_Univariate", "log2_linear_model_contrasts.csv")
 )
 
-# ------------------ 10. DISEASE/REGULATION PATTERN ANALYSIS --------------------
-# Restoration_fraction on log2 medians:
-#   1 = complete return from MCD to NC
-#   0 = no movement away from MCD
-#  >1 = overshoot beyond NC
-#  <0 = further change in the disease direction
 
 summarise_feature_profile <- function(data, feature_name) {
   transformed <- prepare_model_feature(data, feature_name)
@@ -1387,8 +1223,7 @@ write_csv(
   file.path(out_dir, "02_Univariate", "disease_regulation_restoration_patterns.csv")
 )
 
-# Robust sample-level distance from the NC profile within each compartment.
-# Each BA is log2 transformed, then standardized using the NC median and NC MAD.
+
 calculate_nc_distance <- function(part_data) {
   x <- as.matrix(part_data[, ba_columns, drop = FALSE])
   pseudo <- apply(x, 2, minimum_positive)
@@ -1399,7 +1234,7 @@ calculate_nc_distance <- function(part_data) {
   nc_median <- apply(xlog[nc_rows, , drop = FALSE], 2, median, na.rm = TRUE)
   nc_mad <- apply(xlog[nc_rows, , drop = FALSE], 2, mad, constant = 1, na.rm = TRUE)
 
-  # Fall back to NC SD, then 1, when MAD is zero.
+
   nc_sd <- apply(xlog[nc_rows, , drop = FALSE], 2, sd, na.rm = TRUE)
   nc_mad[!is.finite(nc_mad) | nc_mad == 0] <- nc_sd[!is.finite(nc_mad) | nc_mad == 0]
   nc_mad[!is.finite(nc_mad) | nc_mad == 0] <- 1
@@ -1459,9 +1294,6 @@ ggsave(
   p_nc_distance, width = 10, height = 6
 )
 
-# ----------------------------- 11. BOXPLOTS ------------------------------------
-
-# All individual BAs in a compact faceted PDF.
 ba_plot_data <- ba_long %>%
   group_by(Part, Feature) %>%
   mutate(Pseudocount = minimum_positive(Value), Log10_value = log10(Value + Pseudocount)) %>%
@@ -1517,14 +1349,8 @@ if (make_individual_boxplots) {
   dev.off()
 }
 
-# ---------------------------- 12. HEAT MAPS ------------------------------------
 
 make_effect_heatmap <- function(feature_type, output_name) {
-  # pairwise_results may retain dplyr grouping attributes. If Part is kept as
-  # an implicit ID column during pivot_wider(), the same BA name occurs once
-  # per tissue and cannot be used directly as row names. Explicitly ungroup,
-  # construct a unique Feature x (Part__Contrast) key, and aggregate any
-  # accidental duplicate key before widening.
   heat <- pairwise_results %>%
     ungroup() %>%
     filter(Feature_type == feature_type) %>%
@@ -1574,7 +1400,6 @@ make_effect_heatmap <- function(feature_type, output_name) {
     ) %>%
     arrange(Feature)
 
-  # Convert only after Feature is guaranteed to be unique.
   stopifnot(!anyDuplicated(effect_df$Feature))
   stopifnot(!anyDuplicated(symbol_df$Feature))
 
@@ -1619,7 +1444,6 @@ make_effect_heatmap <- function(feature_type, output_name) {
 make_effect_heatmap("Individual_BA", "individual_BA_log2FC_heatmap.pdf")
 make_effect_heatmap("Pathway_index", "pathway_indices_log2FC_heatmap.pdf")
 
-# Restoration heat map.
 restoration_df <- median_profiles %>%
   ungroup() %>%
   filter(Feature_type == "Individual_BA") %>%
@@ -1662,7 +1486,6 @@ pheatmap::pheatmap(
 )
 dev.off()
 
-# -------------------- 13. PCA + PERMANOVA: ABSOLUTE DATA -----------------------
 
 run_absolute_multivariate <- function(part_name) {
   part_data <- analysis_data %>% filter(Part == part_name)
@@ -1744,7 +1567,6 @@ write_csv(
   file.path(out_dir, "04_Multivariate", "absolute_beta_dispersion_tests.csv")
 )
 
-# ----------------------- 14. COMPOSITIONAL CLR ANALYSIS -------------------------
 
 run_clr_multivariate <- function(part_name) {
   part_data <- analysis_data %>% filter(Part == part_name)
@@ -1786,7 +1608,7 @@ run_clr_multivariate <- function(part_name) {
     p, width = 8, height = 6
   )
 
-  distance <- dist(clr_x, method = "euclidean")  # Aitchison distance
+  distance <- dist(clr_x, method = "euclidean")
   meta <- part_data %>% select(Group, Treatment_detail)
 
   permanova <- vegan::adonis2(
@@ -1825,8 +1647,6 @@ write_csv(
   file.path(out_dir, "04_Multivariate", "CLR_beta_dispersion_tests.csv")
 )
 
-# ------------------ 15. GROUP-CENTROID TRAJECTORY IN PCA -----------------------
-# This illustrates the NC -> MCD -> 3_5 direction for each compartment.
 
 make_centroid_trajectory <- function(part_name) {
   part_data <- analysis_data %>% filter(Part == part_name)
@@ -1883,9 +1703,6 @@ make_centroid_trajectory <- function(part_name) {
 
 walk(levels(droplevels(analysis_data$Part)), make_centroid_trajectory)
 
-# ---------------- 16. RESIDUAL SPEARMAN CORRELATION NETWORKS ------------------
-# Group effects are removed feature-by-feature before correlation. This reduces
-# correlations that are caused only by NC/MCD/3_5 mean differences.
 
 pairwise_cor_test <- function(matrix_data) {
   features <- colnames(matrix_data)
@@ -1922,9 +1739,8 @@ run_residual_correlation <- function(part_name) {
 
   residual_matrix <- map_dfc(ba_columns, function(feature) {
     fit <- lm(log_x[[feature]] ~ part_data$Group)
-    tibble(value = residuals(fit))
+    tibble(!!feature := residuals(fit))
   })
-  names(residual_matrix) <- ba_columns
 
   correlation_table <- pairwise_cor_test(as.matrix(residual_matrix))
   write_csv(
@@ -1935,7 +1751,6 @@ run_residual_correlation <- function(part_name) {
 
   cor_matrix <- cor(residual_matrix, method = "spearman", use = "pairwise.complete.obs")
 
-  # Keep all correlations in the heat map. The CSV supplies FDR values.
   pdf(
     file.path(out_dir, "05_Correlation",
               paste0(part_name, "_group_adjusted_correlation_heatmap.pdf")),
@@ -1952,10 +1767,6 @@ run_residual_correlation <- function(part_name) {
 
 walk(levels(droplevels(analysis_data$Part)), run_residual_correlation)
 
-# ---------------- 17. OPTIONAL PLASMA TREATMENT-DETAIL ANALYSIS -----------------
-# This analysis is metadata-driven. It runs only when the plasma 3_5 group has
-# at least two distinct Treatment_detail labels. In the current metadata all
-# plasma 3_5 samples are simply labelled "3_5", so this section is skipped.
 
 plasma_35_details <- analysis_data %>%
   filter(Part == "Plasma", Group == "3_5") %>%
@@ -2025,15 +1836,6 @@ if (run_plasma_detail_analysis) {
   )
 }
 
-# ---------------------- 18. OPTIONAL sPLS-DA -----------------------------------
-# With only 8 samples per group, interpret supervised classification cautiously.
-# Repeated cross-validation is mandatory. The code runs only if mixOmics exists.
-#
-# IMPORTANT:
-# tune.splsda() expects test.keepX to be ONE numeric vector containing the
-# candidate numbers of variables. It must not be a list by component.
-# A named list is required only for tune.block.splsda()/DIABLO, where each list
-# element corresponds to one data block.
 
 if (requireNamespace("mixOmics", quietly = TRUE)) {
 
@@ -2057,12 +1859,9 @@ if (requireNamespace("mixOmics", quietly = TRUE)) {
       x_raw <- as.matrix(part_data[, ba_columns, drop = FALSE])
       storage.mode(x_raw) <- "double"
 
-      # Log-transform each bile acid using a feature-specific positive offset.
       pseudo <- apply(x_raw, 2, minimum_positive)
       x <- log10(sweep(x_raw, 2, pseudo, "+"))
 
-      # Remove features that cannot contribute to the model. This also protects
-      # mixOmics from all-NA, non-finite, or zero-variance columns.
       valid_feature <- apply(x, 2, function(z) {
         z <- z[is.finite(z)]
         length(z) == nrow(x) && length(unique(z)) > 1
@@ -2074,17 +1873,13 @@ if (requireNamespace("mixOmics", quietly = TRUE)) {
         stop("fewer than two nonconstant bile-acid features remain")
       }
 
-      # For three groups, two latent components are ordinarily sufficient.
       ncomp_use <- min(2L, nlevels(y) - 1L, ncol(x))
       if (ncomp_use < 1L) {
         stop("no valid latent component can be fitted")
       }
 
-      # Fast coarse tuning grid: normally c(3, 8, 15).
-      # A single-tissue sPLS-DA has only three candidate values rather than seven.
       candidates <- make_fast_keepx_grid(ncol(x))
 
-      # tune.splsda() requires test.keepX to contain more than two entries.
       if (length(candidates) < 3) {
         stop(paste0(
           "test.keepX needs >=3 distinct candidates after filtering; ncol(X) = ",
@@ -2266,8 +2061,6 @@ if (requireNamespace("mixOmics", quietly = TRUE)) {
   message("mixOmics is not installed; sPLS-DA and DIABLO sections were skipped.")
 }
 
-# --------------------- 19. OPTIONAL MATCHED-ANIMAL MODELS ----------------------
-# These sections run only when Animal_ID has been filled in metadata_file.
 
 has_animal_id <- "Animal_ID" %in% names(analysis_data) &&
   sum(!is.na(analysis_data$Animal_ID) & analysis_data$Animal_ID != "") > 0
@@ -2281,11 +2074,6 @@ if (has_animal_id) {
       Part = droplevels(Part)
     )
 
-  # CRITICAL QC: one Animal_ID must belong to exactly one experimental group.
-  # For sample_metadata_map(3).csv, all 24 Animal_IDs are now group-consistent
-  # and each is represented once in all five compartments. Therefore the current
-  # dataset should retain all 24 animals (8 NC, 8 MCD, 8 3_5) for matched analyses.
-  # The generic exclusion code below is retained as a safety check for future files.
   animal_id_group_qc <- matched_data %>%
     mutate(
       Animal_ID_chr = as.character(Animal_ID),
@@ -2338,7 +2126,6 @@ if (has_animal_id) {
       Part = droplevels(Part)
     )
 
-  # Retain only IDs represented in all five compartments for cross-tissue models.
   required_matched_parts <- c("Liver", "Plasma", "Ileum", "Cecum", "Feces")
   complete_matched_ids <- matched_data %>%
     mutate(Part_chr = as.character(Part), Animal_ID_chr = as.character(Animal_ID)) %>%
@@ -2368,8 +2155,6 @@ if (has_animal_id) {
     file.path(out_dir, "06_Optional_matched", "matched_analysis_animal_counts.csv")
   )
 
-  # Expected design for the revised data/metadata supplied with this script:
-  # 24 complete animals = 8 NC + 8 MCD + 8 3_5, each with five compartments.
   expected_group_counts <- tibble(
     Group = factor(c("NC", "MCD", "3_5"), levels = c("NC", "MCD", "3_5")),
     expected_n_animals = c(8L, 8L, 8L)
@@ -2412,8 +2197,7 @@ if (has_animal_id) {
     file.path(out_dir, "06_Optional_matched", "matched_analysis_summary.csv")
   )
 
-  # Warn about duplicated tissue samples per animal. These may be technical
-  # replicates and should be resolved before longitudinal/multiblock analysis.
+
   duplicated_animal_part <- matched_data %>%
     count(Animal_ID, Part) %>%
     filter(n > 1)
@@ -2423,7 +2207,7 @@ if (has_animal_id) {
     file.path(out_dir, "06_Optional_matched", "duplicated_AnimalID_by_Part.csv")
   )
 
-  # ---------------- Mixed-effects models for each individual BA ----------------
+
   if (requireNamespace("lme4", quietly = TRUE) &&
       requireNamespace("lmerTest", quietly = TRUE) &&
       requireNamespace("emmeans", quietly = TRUE)) {
@@ -2437,7 +2221,7 @@ if (has_animal_id) {
       pseudo <- minimum_positive(model_data$Value)
       model_data <- model_data %>% mutate(Log2Value = log2(Value + pseudo))
 
-      # Batch is included only when it contains at least two nonmissing levels.
+
       use_batch <- "Batch" %in% names(model_data) &&
         n_distinct(na.omit(model_data$Batch)) >= 2
 
@@ -2474,9 +2258,6 @@ if (has_animal_id) {
         "lmer_ok"
       }
 
-      # The singular-fit convergence message is deliberately suppressed at
-      # model-fitting time via lmerControl().  We still diagnose it explicitly
-      # with isSingular() and retain that information in Model_status.
 
       emm <- emmeans::emmeans(fit, ~Group | Part)
       contrasts_out <- emmeans::contrast(
@@ -2503,7 +2284,33 @@ if (has_animal_id) {
       contrasts_out
     }
 
-    mixed_results <- map_dfr(ba_columns, fit_mixed_one_feature) %>%
+    fit_mixed_one_feature_safe <- function(feature_name) {
+      tryCatch(
+        fit_mixed_one_feature(feature_name),
+        error = function(e) {
+          msg <- conditionMessage(e)
+          tibble(
+            Feature = feature_name,
+            Part = NA_character_,
+            Contrast = NA_character_,
+            estimate_log2FC = NA_real_,
+            SE = NA_real_,
+            df = NA_real_,
+            statistic = NA_real_,
+            p_value = NA_real_,
+            Pseudocount = NA_real_,
+            Model_status = if (grepl("unpackedMatrix_transpose", msg, fixed = TRUE)) {
+              "ERROR_Matrix_method_cache_incompatible"
+            } else {
+              "ERROR_mixed_model_or_emmeans"
+            },
+            Message = msg
+          )
+        }
+      )
+    }
+
+    mixed_results <- map_dfr(ba_columns, fit_mixed_one_feature_safe) %>%
       group_by(Part, Contrast) %>%
       mutate(q_BH = p.adjust(p_value, "BH")) %>%
       ungroup()
@@ -2512,9 +2319,34 @@ if (has_animal_id) {
       mixed_results,
       file.path(out_dir, "06_Optional_matched", "mixed_effects_BA_contrasts.csv")
     )
+
+    matrix_method_errors <- mixed_results %>%
+      filter(Model_status == "ERROR_Matrix_method_cache_incompatible")
+
+    if (nrow(matrix_method_errors) > 0L) {
+      matrix_diag <- c(
+        "Mixed-effects emmeans analysis encountered a Matrix compatibility error.",
+        "Error signature: object 'unpackedMatrix_transpose' not found",
+        "This optional block was converted to diagnostic rows so the workflow can continue to DIABLO/SEM.",
+        paste0("R: ", R.version.string),
+        paste0("Matrix: ", if (requireNamespace("Matrix", quietly = TRUE)) as.character(utils::packageVersion("Matrix")) else "not installed"),
+        paste0("lme4: ", if (requireNamespace("lme4", quietly = TRUE)) as.character(utils::packageVersion("lme4")) else "not installed"),
+        paste0("lmerTest: ", if (requireNamespace("lmerTest", quietly = TRUE)) as.character(utils::packageVersion("lmerTest")) else "not installed"),
+        paste0("emmeans: ", if (requireNamespace("emmeans", quietly = TRUE)) as.character(utils::packageVersion("emmeans")) else "not installed"),
+        "Recommended: restart R, then reinstall Matrix and its dependent mixed-model packages using one consistent R library."
+      )
+      writeLines(
+        matrix_diag,
+        file.path(out_dir, "06_Optional_matched", "Matrix_compatibility_diagnostic.txt")
+      )
+      warning(
+        "Mixed-effects/emmeans results were skipped because the installed Matrix-dependent package stack is incompatible. ",
+        "The workflow will continue; see 06_Optional_matched/Matrix_compatibility_diagnostic.txt.",
+        call. = FALSE
+      )
+    }
   }
 
-  # ---------------- Beta mixed models for fractions -----------------------------
   if (requireNamespace("glmmTMB", quietly = TRUE) &&
       requireNamespace("emmeans", quietly = TRUE)) {
 
@@ -2532,7 +2364,6 @@ if (has_animal_id) {
         rename(Proportion = all_of(feature_name)) %>%
         filter(is.finite(Proportion), Proportion >= 0, Proportion <= 1)
 
-      # Smithson-Verkuilen adjustment moves exact 0/1 into the open interval.
       n <- nrow(d)
       d <- d %>% mutate(Proportion_beta = (Proportion * (n - 1) + 0.5) / n)
 
@@ -2562,15 +2393,31 @@ if (has_animal_id) {
       pairs
     }
 
-    beta_mixed_results <- map_dfr(proportion_features, fit_beta_mixed)
+    fit_beta_mixed_safe <- function(feature_name) {
+      tryCatch(
+        fit_beta_mixed(feature_name),
+        error = function(e) {
+          msg <- conditionMessage(e)
+          tibble(
+            Feature = feature_name,
+            Status = if (grepl("unpackedMatrix_transpose", msg, fixed = TRUE)) {
+              "ERROR_Matrix_method_cache_incompatible"
+            } else {
+              "ERROR_beta_mixed_model_or_emmeans"
+            },
+            Message = msg
+          )
+        }
+      )
+    }
+
+    beta_mixed_results <- map_dfr(proportion_features, fit_beta_mixed_safe)
     write_csv(
       beta_mixed_results,
       file.path(out_dir, "06_Optional_matched", "beta_mixed_pathway_indices.csv")
     )
   }
 
-  # ---------------- Cross-tissue correlations ----------------------------------
-  # Only animals represented once in both compared compartments are used.
   cross_tissue_features <- c(
     "Conjugated_fraction", "Secondary_fraction", "CA_to_DCA_index",
     "CDCA_to_UDCA_index", "betaMCA_to_omegaMCA_index", "Total_BA"
@@ -2623,11 +2470,7 @@ if (has_animal_id) {
     file.path(out_dir, "06_Optional_matched", "cross_tissue_spearman_correlations.csv")
   )
 
-  # ---------------- DIABLO multiblock sPLS-DA ----------------------------------
   if (requireNamespace("mixOmics", quietly = TRUE)) {
-    # DIABLO requires exactly the same animals, in exactly the same order,
-    # in every block and in Y. With sample_metadata_map(3).csv the expected
-    # design is 24 animals (8/group) present in all five blocks.
 
     summarized <- matched_data %>%
       group_by(Animal_ID, Group, Part) %>%
@@ -2686,7 +2529,6 @@ if (has_animal_id) {
       min(group_counts_diablo$n) >= 3
 
     if (can_run_diablo) {
-      # Build Y first; this becomes the master order for every block.
       y_table <- complete_data %>%
         distinct(Animal_ID, Group) %>%
         arrange(Animal_ID)
@@ -2780,9 +2622,6 @@ if (has_animal_id) {
       )
       diag(design) <- 0
 
-      # Fast DIABLO grid: three keepX values per block, normally c(3, 8, 15).
-      # With five blocks this means 3^5 = 243 combinations per component/repeat,
-      # instead of 7^5 = 16,807 combinations with the previous grid.
       test_keepX <- imap(blocks, function(x, block_name) {
         candidates <- make_fast_keepx_grid(ncol(x))
         if (length(candidates) < 3) {
@@ -2799,7 +2638,6 @@ if (has_animal_id) {
         stop("DIABLO skipped: fewer than two CV folds are possible.")
       }
 
-      # Report the size of the tuning problem before it starts.
       combinations_per_component <- prod(vapply(test_keepX, length, integer(1)))
       message(
         "DIABLO fast tuning: ", combinations_per_component,
@@ -2840,7 +2678,6 @@ if (has_animal_id) {
         design = design
       )
 
-      # More thorough repeated CV is reserved for the final selected model.
       set.seed(20260807)
       diablo_perf_parallel <- get_mixomics_perf_parallel_args(
         diablo_fit, DIABLO_WORKERS
@@ -2900,14 +2737,6 @@ if (has_animal_id) {
       )
       dev.off()
 
-      # -----------------------------------------------------------------------
-      # Robust DIABLO circos export
-      #
-      # IMPORTANT: circosPlot() expects color.blocks to be a character vector
-      # (one colour per block), not TRUE/FALSE.  The older code used
-      # color.blocks = TRUE inside try(..., silent = TRUE); therefore a plotting
-      # error could be hidden while an empty/unreadable PDF was still created.
-      # -----------------------------------------------------------------------
       circos_pdf <- file.path(
         out_dir, "06_Optional_matched", "DIABLO_circos.pdf"
       )
@@ -2943,8 +2772,6 @@ if (has_animal_id) {
       circos_error <- NULL
       circos_result <- NULL
 
-      # Draw first to a temporary PDF.  Only copy it to the final filename if
-      # circosPlot finishes successfully.
       tmp_circos_pdf <- tempfile(fileext = ".pdf")
       grDevices::pdf(tmp_circos_pdf, width = 10, height = 10, onefile = TRUE)
       tryCatch(
@@ -2966,7 +2793,6 @@ if (has_animal_id) {
 
         file.copy(tmp_circos_pdf, circos_pdf, overwrite = TRUE)
 
-        # Also create a PNG fallback, which is often easier to open on Windows.
         png_error <- NULL
         grDevices::png(
           circos_png, width = 3000, height = 3000, res = 300
@@ -2993,16 +2819,12 @@ if (has_animal_id) {
         )
         writeLines(diag_lines, circos_diag)
 
-        # circosPlot returns useful plotting information as attributes/results
-        # in many mixOmics versions; preserve it for later inspection.
         saveRDS(
           circos_result,
           file.path(out_dir, "06_Optional_matched", "DIABLO_circos_result.rds")
         )
 
       } else {
-        # Never leave behind a corrupted/empty final PDF.  Instead create a
-        # valid diagnostic PDF and write the actual error to a text file.
         if (file.exists(circos_pdf)) unlink(circos_pdf)
         if (file.exists(circos_png)) unlink(circos_png)
 
@@ -3059,27 +2881,23 @@ if (has_animal_id) {
     }
   }
 
-  # ---------------- Piecewise structural-equation model ------------------------
-  # This section ALWAYS creates a summary/diagnostic file.  The older version
-  # only created piecewise_SEM_summary.txt when piecewiseSEM was installed and
-  # the model ran successfully, so a skipped/error state could look like a
-  # "missing result".  We now:
-  #   1) always write the SEM input data and diagnostics;
-  #   2) always fit/export the four component LM path models as a fallback;
-  #   3) run piecewiseSEM::psem() when the package is available;
-  #   4) save standardized path coefficients and the fitted psem object;
-  #   5) always create piecewise_SEM_summary.txt, even on failure/skip.
 
   sem_dir <- file.path(out_dir, "06_Optional_matched")
   sem_summary_file <- file.path(sem_dir, "piecewise_SEM_summary.txt")
   sem_diag_file <- file.path(sem_dir, "piecewise_SEM_diagnostic.txt")
+  sem_input_raw_file <- file.path(sem_dir, "piecewise_SEM_input_data_raw.csv")
   sem_input_file <- file.path(sem_dir, "piecewise_SEM_input_data.csv")
+  sem_input_transformed_file <- file.path(sem_dir, "piecewise_SEM_input_data_transformed.csv")
+  sem_transform_file <- file.path(sem_dir, "piecewise_SEM_transformation_details.csv")
   sem_lm_coef_file <- file.path(sem_dir, "piecewise_SEM_component_LM_coefficients.csv")
   sem_lm_std_file <- file.path(sem_dir, "piecewise_SEM_component_LM_standardized_coefficients.csv")
+  sem_path_summary_file <- file.path(sem_dir, "piecewise_SEM_path_summary.csv")
+  sem_path_diagram_pdf <- file.path(sem_dir, "piecewise_SEM_path_diagram.pdf")
+  sem_path_diagram_png <- file.path(sem_dir, "piecewise_SEM_path_diagram.png")
   sem_psem_coef_file <- file.path(sem_dir, "piecewise_SEM_path_coefficients.csv")
+  sem_global_fit_file <- file.path(sem_dir, "piecewise_SEM_global_fit.csv")
   sem_model_file <- file.path(sem_dir, "piecewise_SEM_model.rds")
 
-  # Create a placeholder immediately so the expected file can never be absent.
   writeLines(
     c(
       "Piecewise SEM analysis initialized.",
@@ -3089,8 +2907,6 @@ if (has_animal_id) {
     sem_summary_file
   )
 
-  # Manual feature selection is defined near the top of the script in
-  # SEM_FEATURE_BY_PART.  The five compartments must be present exactly once.
   sem_parts <- c("Liver", "Plasma", "Ileum", "Cecum", "Feces")
 
   if (!identical(sort(names(SEM_FEATURE_BY_PART)), sort(sem_parts))) {
@@ -3121,12 +2937,12 @@ if (has_animal_id) {
     )
   }
 
-  sem_wide <- matched_data %>%
+  sem_wide_raw <- matched_data %>%
     group_by(Animal_ID, Group, Part) %>%
     summarise(
       across(
         all_of(sem_selected_features),
-        ~ mean(.x, na.rm = TRUE)
+        ~ if (all(!is.finite(.x))) NA_real_ else mean(.x[is.finite(.x)], na.rm = TRUE)
       ),
       .groups = "drop"
     ) %>%
@@ -3140,34 +2956,146 @@ if (has_animal_id) {
       Group = droplevels(factor(Group, levels = c("NC", "MCD", "3_5")))
     )
 
-  # Convert each manual Part -> Feature choice to its corresponding wide-column
-  # name, e.g. Liver="TbetaMCA" becomes "TbetaMCA__Liver".
   sem_node_vars <- setNames(
     paste0(unname(SEM_FEATURE_BY_PART[sem_parts]), "__", sem_parts),
     sem_parts
   )
   required_sem_vars <- unname(sem_node_vars)
 
-  # Export the exact manual selection used for this SEM run.
+  sem_bounded_features <- c(
+    "Conjugated_fraction", "Taurine_fraction_total", "Glycine_fraction_total",
+    "Secondary_fraction", "Fraction_12aOH",
+    "CA_conjugation", "CDCA_conjugation", "DCA_conjugation",
+    "UDCA_conjugation", "alphaMCA_conjugation", "betaMCA_conjugation",
+    "CA_to_DCA_index", "CDCA_to_UDCA_index", "betaMCA_to_omegaMCA_index"
+  )
+
+  get_sem_transform_type <- function(feature_name) {
+    if (stringr::str_detect(feature_name, "^log2_")) {
+      "identity_existing_log2"
+    } else if (feature_name %in% sem_bounded_features) {
+      "stabilized_logit_0_1"
+    } else {
+      "log2_value_plus_pseudocount"
+    }
+  }
+
+  transform_sem_vector <- function(x, feature_name) {
+    x <- as.numeric(x)
+    transform_type <- get_sem_transform_type(feature_name)
+
+    if (transform_type == "identity_existing_log2") {
+      return(list(
+        value = x,
+        transform = transform_type,
+        parameter = 0,
+        parameter_name = "none"
+      ))
+    }
+
+    if (transform_type == "stabilized_logit_0_1") {
+      bad <- is.finite(x) & (x < 0 | x > 1)
+      if (any(bad)) {
+        stop(
+          "SEM bounded feature '", feature_name,
+          "' contains value(s) outside [0,1]. Check the pathway-index calculation."
+        )
+      }
+
+      interior <- x[is.finite(x) & x > 0 & x < 1]
+      boundary_dist <- c(interior, 1 - interior)
+      eps <- if (length(boundary_dist) == 0L) {
+        1e-6
+      } else {
+        min(0.01, max(1e-6, min(boundary_dist, na.rm = TRUE) / 2))
+      }
+      clipped <- pmin(pmax(x, eps), 1 - eps)
+      return(list(
+        value = stats::qlogis(clipped),
+        transform = transform_type,
+        parameter = eps,
+        parameter_name = "boundary_epsilon"
+      ))
+    }
+
+    if (any(x < 0, na.rm = TRUE)) {
+      stop(
+        "SEM concentration-like feature '", feature_name,
+        "' contains negative value(s); log2(x+pseudocount) is not valid."
+      )
+    }
+    pseudo <- minimum_positive(x)
+    list(
+      value = log2(x + pseudo),
+      transform = transform_type,
+      parameter = pseudo,
+      parameter_name = "pseudocount"
+    )
+  }
+
   sem_selection_table <- tibble(
     Part = sem_parts,
     Feature = unname(SEM_FEATURE_BY_PART[sem_parts]),
-    SEM_variable = required_sem_vars
+    SEM_variable = required_sem_vars,
+    Transform_type = vapply(
+      unname(SEM_FEATURE_BY_PART[sem_parts]),
+      get_sem_transform_type,
+      character(1)
+    )
   )
   readr::write_csv(
     sem_selection_table,
     file.path(sem_dir, "piecewise_SEM_manual_feature_selection.csv")
   )
 
-  missing_sem_vars <- setdiff(required_sem_vars, names(sem_wide))
+  missing_sem_vars <- setdiff(required_sem_vars, names(sem_wide_raw))
+
+  sem_wide <- sem_wide_raw
+  sem_transform_list <- vector("list", length(sem_parts))
+  names(sem_transform_list) <- sem_parts
+
+  for (part_name in sem_parts) {
+    feature_name <- unname(SEM_FEATURE_BY_PART[[part_name]])
+    variable_name <- sem_node_vars[[part_name]]
+
+    if (!variable_name %in% names(sem_wide)) {
+      sem_transform_list[[part_name]] <- tibble(
+        Part = part_name, Feature = feature_name, SEM_variable = variable_name,
+        Transform_type = NA_character_, Parameter_name = NA_character_,
+        Parameter_value = NA_real_
+      )
+      next
+    }
+
+    transformed <- transform_sem_vector(sem_wide[[variable_name]], feature_name)
+    sem_wide[[variable_name]] <- transformed$value
+
+    sem_transform_list[[part_name]] <- tibble(
+      Part = part_name,
+      Feature = feature_name,
+      SEM_variable = variable_name,
+      Transform_type = transformed$transform,
+      Parameter_name = transformed$parameter_name,
+      Parameter_value = transformed$parameter
+    )
+  }
+  sem_transform_details <- bind_rows(sem_transform_list)
+
+  readr::write_csv(sem_transform_details, sem_transform_file)
+  readr::write_csv(sem_wide_raw, sem_input_raw_file)
 
   if (length(missing_sem_vars) == 0L) {
-    sem_wide <- sem_wide %>%
-      filter(if_all(all_of(required_sem_vars), is.finite)) %>%
-      droplevels()
+    complete_sem_rows <- sem_wide %>%
+      transmute(keep = if_all(all_of(required_sem_vars), is.finite)) %>%
+      pull(keep)
+
+    sem_wide <- sem_wide[complete_sem_rows, , drop = FALSE] %>% droplevels()
+    sem_wide_raw <- sem_wide_raw[complete_sem_rows, , drop = FALSE] %>% droplevels()
   }
 
   readr::write_csv(sem_wide, sem_input_file)
+  readr::write_csv(sem_wide, sem_input_transformed_file)
+  readr::write_csv(sem_wide_raw, file.path(sem_dir, "piecewise_SEM_complete_case_raw_data.csv"))
 
   sem_group_counts <- if (nrow(sem_wide) > 0L && "Group" %in% names(sem_wide)) {
     sem_wide %>% count(Group, name = "n")
@@ -3197,6 +3125,7 @@ if (has_animal_id) {
         collapse = " -> "
       )
     ),
+    "SEM values are feature-aware transformed before model fitting.",
     paste0(
       "Group counts: ",
       if (nrow(sem_group_counts) > 0L) {
@@ -3212,8 +3141,6 @@ if (has_animal_id) {
     paste0("R version: ", R.version.string)
   )
 
-  # Safe component models. Formulas are generated automatically from the
-  # manual feature selection above. Each path still adjusts for experimental Group.
   make_sem_formula <- function(response_part, predictor_part) {
     stats::reformulate(
       termlabels = c(sem_node_vars[[predictor_part]], "Group"),
@@ -3221,11 +3148,28 @@ if (has_animal_id) {
     )
   }
 
-  sem_formulas <- list(
-    Liver_to_Plasma = make_sem_formula("Plasma", "Liver"),
-    Plasma_to_Ileum = make_sem_formula("Ileum", "Plasma"),
-    Ileum_to_Cecum = make_sem_formula("Cecum", "Ileum"),
-    Cecum_to_Feces = make_sem_formula("Feces", "Cecum")
+  sem_path_map <- tribble(
+    ~Path, ~Predictor_part, ~Response_part,
+    "Liver_to_Plasma", "Liver", "Plasma",
+    "Plasma_to_Ileum", "Plasma", "Ileum",
+    "Ileum_to_Cecum", "Ileum", "Cecum",
+    "Cecum_to_Feces", "Cecum", "Feces"
+  ) %>%
+    mutate(
+      Predictor_feature = unname(SEM_FEATURE_BY_PART[Predictor_part]),
+      Response_feature = unname(SEM_FEATURE_BY_PART[Response_part]),
+      Predictor_variable = unname(sem_node_vars[Predictor_part]),
+      Response_variable = unname(sem_node_vars[Response_part]),
+      Direction = paste(Predictor_part, "->", Response_part)
+    )
+
+  sem_formulas <- setNames(
+    purrr::map2(
+      sem_path_map$Response_part,
+      sem_path_map$Predictor_part,
+      make_sem_formula
+    ),
+    sem_path_map$Path
   )
 
   sem_lm_models <- list()
@@ -3274,9 +3218,6 @@ if (has_animal_id) {
   }
   readr::write_csv(sem_lm_coef, sem_lm_coef_file)
 
-  # Standardized component path models: numeric SEM variables are z-scored,
-  # while Group remains a factor. For the biological chain predictor in each
-  # equation, the estimate is therefore a standardized path coefficient.
   sem_std <- sem_wide
   if (length(missing_sem_vars) == 0L && nrow(sem_std) > 0L) {
     sem_std <- sem_std %>%
@@ -3307,6 +3248,8 @@ if (has_animal_id) {
       mutate(
         Path = path_name,
         n = stats::nobs(model),
+        r_squared = summary(model)$r.squared,
+        adjusted_r_squared = summary(model)$adj.r.squared,
         .before = 1
       )
   })
@@ -3314,10 +3257,142 @@ if (has_animal_id) {
     sem_lm_std_coef <- tibble(
       Path = character(), term = character(), estimate = numeric(),
       std.error = numeric(), statistic = numeric(), p.value = numeric(),
-      conf.low = numeric(), conf.high = numeric(), n = integer()
+      conf.low = numeric(), conf.high = numeric(), n = integer(),
+      r_squared = numeric(), adjusted_r_squared = numeric()
     )
   }
   readr::write_csv(sem_lm_std_coef, sem_lm_std_file)
+
+  sem_path_summary <- purrr::map_dfr(seq_len(nrow(sem_path_map)), function(i) {
+    info <- sem_path_map[i, ]
+    path_name <- info$Path[[1]]
+    predictor_term <- info$Predictor_variable[[1]]
+
+    raw_row <- sem_lm_coef %>%
+      filter(Path == path_name, term == predictor_term) %>%
+      slice(1)
+    std_row <- sem_lm_std_coef %>%
+      filter(Path == path_name, term == predictor_term) %>%
+      slice(1)
+
+    predictor_transform <- sem_transform_details %>%
+      filter(Part == info$Predictor_part[[1]]) %>%
+      slice(1)
+    response_transform <- sem_transform_details %>%
+      filter(Part == info$Response_part[[1]]) %>%
+      slice(1)
+
+    tibble(
+      Path = path_name,
+      Direction = info$Direction[[1]],
+      Predictor_part = info$Predictor_part[[1]],
+      Predictor_feature = info$Predictor_feature[[1]],
+      Predictor_transform = if (nrow(predictor_transform)) predictor_transform$Transform_type[[1]] else NA_character_,
+      Response_part = info$Response_part[[1]],
+      Response_feature = info$Response_feature[[1]],
+      Response_transform = if (nrow(response_transform)) response_transform$Transform_type[[1]] else NA_character_,
+      n = if (nrow(std_row)) std_row$n[[1]] else NA_integer_,
+      beta_standardized = if (nrow(std_row)) std_row$estimate[[1]] else NA_real_,
+      beta_CI95_low = if (nrow(std_row)) std_row$conf.low[[1]] else NA_real_,
+      beta_CI95_high = if (nrow(std_row)) std_row$conf.high[[1]] else NA_real_,
+      p_value = if (nrow(std_row)) std_row$p.value[[1]] else NA_real_,
+      R2 = if (nrow(std_row)) std_row$r_squared[[1]] else NA_real_,
+      adjusted_R2 = if (nrow(std_row)) std_row$adjusted_r_squared[[1]] else NA_real_,
+      estimate_transformed_scale = if (nrow(raw_row)) raw_row$estimate[[1]] else NA_real_,
+      transformed_CI95_low = if (nrow(raw_row)) raw_row$conf.low[[1]] else NA_real_,
+      transformed_CI95_high = if (nrow(raw_row)) raw_row$conf.high[[1]] else NA_real_
+    )
+  }) %>%
+    mutate(
+      q_BH_FDR = p.adjust(p_value, method = "BH"),
+      Significance = case_when(
+        is.na(q_BH_FDR) ~ "",
+        q_BH_FDR < 0.001 ~ "***",
+        q_BH_FDR < 0.01 ~ "**",
+        q_BH_FDR < 0.05 ~ "*",
+        TRUE ~ ""
+      ),
+      FDR_significant = !is.na(q_BH_FDR) & q_BH_FDR < 0.05,
+      Direction_of_association = case_when(
+        is.na(beta_standardized) ~ NA_character_,
+        beta_standardized > 0 ~ "positive",
+        beta_standardized < 0 ~ "negative",
+        TRUE ~ "zero"
+      )
+    )
+
+  readr::write_csv(sem_path_summary, sem_path_summary_file)
+
+  sem_nodes <- tibble(
+    Part = sem_parts,
+    Feature = unname(SEM_FEATURE_BY_PART[sem_parts]),
+    x = seq_along(sem_parts),
+    y = 0,
+    label = paste0(Part, "\n", Feature)
+  )
+
+  sem_edges <- sem_path_summary %>%
+    mutate(
+      x = match(Predictor_part, sem_parts),
+      xend = match(Response_part, sem_parts),
+      y = 0,
+      yend = 0,
+      edge_label = if_else(
+        is.finite(beta_standardized),
+        paste0(
+          "beta = ", sprintf("%.2f", beta_standardized), Significance,
+          "\n95% CI [", sprintf("%.2f", beta_CI95_low), ", ",
+          sprintf("%.2f", beta_CI95_high), "]",
+          "\nq = ", if_else(q_BH_FDR < 0.001, "<0.001", sprintf("%.3f", q_BH_FDR)),
+          " | R2 = ", sprintf("%.2f", R2)
+        ),
+        "model unavailable"
+      ),
+      line_type = if_else(FDR_significant, "FDR q < 0.05", "FDR q >= 0.05")
+    )
+
+  sem_plot <- ggplot() +
+    geom_segment(
+      data = sem_edges,
+      aes(x = x + 0.28, xend = xend - 0.28, y = y, yend = yend, linetype = line_type),
+      linewidth = 0.8,
+      arrow = grid::arrow(length = grid::unit(0.18, "cm"), type = "closed")
+    ) +
+    geom_label(
+      data = sem_nodes,
+      aes(x = x, y = y, label = label),
+      size = 4.2,
+      fontface = "bold",
+      label.size = 0.5,
+      label.padding = grid::unit(0.28, "lines")
+    ) +
+    geom_label(
+      data = sem_edges,
+      aes(x = (x + xend) / 2, y = 0.62, label = edge_label),
+      size = 3.0,
+      label.size = 0.25,
+      label.padding = grid::unit(0.18, "lines")
+    ) +
+    scale_linetype_manual(
+      values = c("FDR q < 0.05" = "solid", "FDR q >= 0.05" = "dashed"),
+      drop = FALSE
+    ) +
+    coord_cartesian(xlim = c(0.55, 5.45), ylim = c(-0.45, 1.15), clip = "off") +
+    labs(
+      title = "Piecewise SEM of the multi-compartment bile-acid axis",
+      subtitle = "Liver -> Plasma -> Ileum -> Cecum -> Feces; each path adjusted for experimental group",
+      linetype = NULL
+    ) +
+    theme_void(base_size = 12) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      plot.subtitle = element_text(hjust = 0.5, size = 10),
+      legend.position = "bottom",
+      plot.margin = margin(15, 20, 15, 20)
+    )
+
+  ggsave(sem_path_diagram_pdf, sem_plot, width = 13, height = 5.5)
+  ggsave(sem_path_diagram_png, sem_plot, width = 13, height = 5.5, dpi = 300)
 
   psem_status <- "not_run"
   psem_error <- NULL
@@ -3332,10 +3407,9 @@ if (has_animal_id) {
   if (!requireNamespace("piecewiseSEM", quietly = TRUE)) {
     psem_status <- "piecewiseSEM_not_installed_component_LM_fallback_completed"
     psem_error <- paste0(
-      "The package 'piecewiseSEM' is not installed. The four component path ",
-      "regressions were still fitted and exported. To obtain Fisher's C and ",
-      "piecewiseSEM-specific global fit statistics, install piecewiseSEM and ",
-      "rerun this SEM section."
+      "The package 'piecewiseSEM' is not installed. The four transformed component path ",
+      "regressions, standardized beta table, FDR correction and path diagram were still ",
+      "generated. Install piecewiseSEM to obtain Fisher's C / directed-separation global fit."
     )
   } else if (!can_run_psem) {
     psem_status <- "piecewiseSEM_skipped_insufficient_or_invalid_input"
@@ -3388,6 +3462,19 @@ if (has_animal_id) {
             sem_psem_coef_file
           )
         }
+
+        global_fit <- tryCatch(
+          as.data.frame(piecewiseSEM::fisherC(sem_model)),
+          error = function(e) NULL
+        )
+        if (!is.null(global_fit) && nrow(global_fit) > 0L) {
+          readr::write_csv(global_fit, sem_global_fit_file)
+        } else {
+          readr::write_csv(
+            tibble(Status = "Fisher_C_extraction_failed_or_unavailable"),
+            sem_global_fit_file
+          )
+        }
       } else {
         psem_status <- "piecewiseSEM_summary_failed_component_LM_fallback_available"
       }
@@ -3396,12 +3483,11 @@ if (has_animal_id) {
     }
   }
 
-  # Ensure the path-coefficient file exists even when psem was not run.
   if (!file.exists(sem_psem_coef_file)) {
-    readr::write_csv(
-      tibble(Status = psem_status),
-      sem_psem_coef_file
-    )
+    readr::write_csv(tibble(Status = psem_status), sem_psem_coef_file)
+  }
+  if (!file.exists(sem_global_fit_file)) {
+    readr::write_csv(tibble(Status = psem_status), sem_global_fit_file)
   }
 
   sem_diagnostics <- c(
@@ -3417,14 +3503,43 @@ if (has_animal_id) {
     } else {
       "Component LM errors: none"
     },
-    paste0("Input data: ", sem_input_file),
-    paste0("Component coefficients: ", sem_lm_coef_file),
-    paste0("Standardized component coefficients: ", sem_lm_std_file),
-    paste0("piecewiseSEM coefficients: ", sem_psem_coef_file)
+    paste0("Raw SEM input: ", sem_input_raw_file),
+    paste0("Transformed SEM input: ", sem_input_transformed_file),
+    paste0("Transformation details: ", sem_transform_file),
+    paste0("Compact path summary: ", sem_path_summary_file),
+    paste0("Path diagram PDF: ", sem_path_diagram_pdf),
+    paste0("Path diagram PNG: ", sem_path_diagram_png),
+    paste0("piecewiseSEM coefficients: ", sem_psem_coef_file),
+    paste0("piecewiseSEM global fit: ", sem_global_fit_file)
   )
   writeLines(sem_diagnostics, sem_diag_file)
 
-  # ALWAYS overwrite the summary placeholder with a useful final report.
+  compact_path_lines <- if (nrow(sem_path_summary) > 0L) {
+    c(
+      "------------------------------------------------------------",
+      "PRIMARY FOUR-PATH RESULTS",
+      "standardized beta; 95% CI; P; BH-FDR q; model R2",
+      "------------------------------------------------------------",
+      apply(sem_path_summary, 1, function(z) {
+        paste0(
+          z[["Direction"]], ": beta=", sprintf("%.3f", as.numeric(z[["beta_standardized"]])),
+          " [", sprintf("%.3f", as.numeric(z[["beta_CI95_low"]])), ", ",
+          sprintf("%.3f", as.numeric(z[["beta_CI95_high"]])), "]",
+          "; P=", format.pval(as.numeric(z[["p_value"]]), digits = 3, eps = 0.001),
+          "; q=", format.pval(as.numeric(z[["q_BH_FDR"]]), digits = 3, eps = 0.001),
+          "; R2=", sprintf("%.3f", as.numeric(z[["R2"]])),
+          ifelse(z[["FDR_significant"]] == "TRUE", " [FDR-significant]", "")
+        )
+      }),
+      "",
+      paste0("CSV: ", sem_path_summary_file),
+      paste0("Diagram: ", sem_path_diagram_pdf),
+      ""
+    )
+  } else {
+    c("No compact path summary could be generated.", "")
+  }
+
   summary_header <- c(
     "============================================================",
     "PIECEWISE STRUCTURAL-EQUATION MODEL: BILE-ACID AXIS",
@@ -3442,36 +3557,31 @@ if (has_animal_id) {
     paste0(
       "  ",
       paste(
-        paste0(
-          sem_parts, "[",
-          unname(SEM_FEATURE_BY_PART[sem_parts]),
-          "]"
-        ),
+        paste0(sem_parts, "[", unname(SEM_FEATURE_BY_PART[sem_parts]), "]"),
         collapse = " -> "
       )
     ),
     "",
-    "Each component model also adjusts for experimental Group (NC/MCD/3_5).",
+    "Each component model adjusts for experimental Group (NC/MCD/3_5).",
+    "Feature-aware transformation is applied BEFORE model fitting.",
+    "See piecewise_SEM_transformation_details.csv for the exact transformation of every node.",
     ""
   )
 
   fallback_lines <- c(
     "------------------------------------------------------------",
-    "COMPONENT PATH REGRESSIONS (always generated)",
+    "COMPONENT PATH REGRESSIONS",
     "------------------------------------------------------------",
     if (length(sem_lm_models) > 0L) {
       unlist(purrr::imap(sem_lm_models, function(model, nm) {
-        c(
-          paste0("\n### ", nm),
-          capture.output(summary(model))
-        )
+        c(paste0("\n### ", nm), capture.output(summary(model)))
       }), use.names = FALSE)
     } else {
       "No component path regression could be fitted."
     },
     "",
-    paste0("Raw component coefficients CSV: ", sem_lm_coef_file),
-    paste0("Standardized component coefficients CSV: ", sem_lm_std_file),
+    paste0("Unstandardized transformed-scale coefficients: ", sem_lm_coef_file),
+    paste0("Standardized coefficients: ", sem_lm_std_file),
     ""
   )
 
@@ -3483,6 +3593,7 @@ if (has_animal_id) {
       sem_summary_lines,
       "",
       paste0("piecewiseSEM path coefficients CSV: ", sem_psem_coef_file),
+      paste0("Global fit CSV: ", sem_global_fit_file),
       paste0("Saved model object: ", sem_model_file)
     )
   } else {
@@ -3493,44 +3604,21 @@ if (has_animal_id) {
       "A piecewiseSEM global model was not available.",
       paste0("Reason/status: ", psem_status),
       if (!is.null(psem_error)) paste0("Message: ", psem_error) else "",
-      "The component path regressions above remain valid regression outputs,",
-      "but Fisher's C / directed-separation global-fit statistics require",
-      "a successful piecewiseSEM::psem model.",
+      "The four component path regressions, standardized beta/FDR table, and",
+      "path diagram remain available. Fisher's C / directed-separation global-fit",
+      "statistics require a successful piecewiseSEM::psem model.",
       "",
       paste0("Diagnostic file: ", sem_diag_file)
     )
   }
 
   writeLines(
-    c(summary_header, fallback_lines, psem_lines),
+    c(summary_header, compact_path_lines, fallback_lines, psem_lines),
     sem_summary_file
   )
 }
 
-# --------------------- 20. OPTIONAL TECHNICAL-REPLICATE COLLAPSE ---------------
-# This is deliberately not applied automatically. After filling Replicate_Set in
-# sample_metadata_map(3).csv, uncomment and run this block before the analyses above.
-#
-# data_collapsed <- data %>%
-#   mutate(
-#     Analysis_unit = case_when(
-#       !is.na(Replicate_Set) & Replicate_Set != "" ~ Replicate_Set,
-#       !is.na(Animal_ID) & Animal_ID != "" ~ paste(Animal_ID, Part, sep = "__"),
-#       TRUE ~ Sample_ID
-#     )
-#   ) %>%
-#   group_by(Analysis_unit, Group, Part, Animal_ID, Batch, Treatment_detail) %>%
-#   summarise(
-#     Sample_ID = paste(Sample_ID, collapse = ";"),
-#     across(all_of(ba_columns), ~ mean(.x, na.rm = TRUE)),
-#     .groups = "drop"
-#   )
-#
-# Then replace `data` with `data_collapsed` and rerun from Section 3.
 
-# ----------------------------- 21. SESSION INFO --------------------------------
-
-# Explicitly stop cached SOCK workers before collecting session information.
 stop_mixomics_backends()
 
 capture.output(
